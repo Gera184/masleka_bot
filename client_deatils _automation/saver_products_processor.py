@@ -2,13 +2,77 @@
 """
 SaverMyProducts processing module for client details automation.
 Handles extraction, processing, and file management for client product data.
+
+FLOW OVERVIEW:
+=============
+
+1. ENTRY POINT:
+   - process_saver_products_with_navigation() - Main function called from external modules
+
+2. DATA EXTRACTION PHASE:
+   - SaverProductsExtractor.__init__() - Initialize extractor with driver and wait
+   - SaverProductsExtractor.extract_saver_products_data() - Main extraction method
+     ├── ElementFinder.wait_for_element() - Find SaverMyProducts element
+     ├── SaverProductsExtractor._get_product_rows() - Get all product rows
+     └── SaverProductsExtractor._process_all_product_rows() - Process each row
+         └── ProductDataProcessor.process_product_row() - Process individual product
+             ├── ProductDataProcessor._extract_product_name() - Get product name
+             └── ProductDataProcessor._process_detail_boxes_with_policies() - Process detail boxes
+                 ├── DetailBoxExtractor.extract_all_detail_box_data() - Extract box data
+                 │   ├── DetailBoxExtractor._extract_basic_elements() - Extract div/span elements
+                 │   ├── DetailBoxExtractor._extract_currency_elements() - Extract .shekel elements
+                 │   ├── DetailBoxExtractor._extract_percentage_elements() - Extract .precentage elements
+                 │   └── DetailBoxExtractor._extract_link_elements() - Extract anchor elements
+                 └── ProductDataProcessor._get_policy_data_for_number() - Get policy data
+                     ├── ProductDataProcessor._navigate_back_to_main_page() - Open new tab
+                     ├── ProductDataProcessor._click_product_details_tab() - Click "פירוט מוצרים" tab
+                     ├── ProductDataProcessor._find_policy_link_by_number() - Find policy link
+                     └── ProductDataProcessor._click_specific_tabs() - Click policy tabs
+                         ├── ProductDataProcessor._find_tab_by_text() - Find tab by text
+                         ├── ProductDataProcessor._extract_liens_data() - Extract "שעבודים ועיקולים" data
+                         └── ProductDataProcessor._extract_loans_data() - Extract "הלוואות" data
+
+3. FILE SAVING PHASE:
+   - DataFileManager.save_extracted_data() - Save extracted data to text file
+
+4. NAVIGATION & PDF DOWNLOAD PHASE:
+   - NavigationHandler.__init__() - Initialize navigator
+   - NavigationHandler.navigate_via_pdf_icon() - Handle PDF icon navigation
+     ├── ElementFinder.wait_for_element() - Find PDF icon
+     └── NavigationHandler._handle_pdf_download() - Handle PDF download
+         ├── PDFManager.wait_for_new_pdf_download() - Wait for PDF download
+         └── PDFManager.move_pdf_to_folder() - Move PDF to client folder
+
+UTILITY CLASSES:
+===============
+- PDFManager: Handles PDF file operations (download monitoring, file movement)
+- ElementFinder: Handles element finding and waiting operations
+- DetailBoxExtractor: Handles extraction of data from detail boxes
+- ProductDataProcessor: Handles processing of individual product data
+- DataFileManager: Handles saving extracted data to files
+- SaverProductsExtractor: Main class for extracting SaverMyProducts data
+- NavigationHandler: Handles navigation operations including PDF icon clicking
+
+EXECUTION ORDER:
+===============
+1. Extract SaverMyProducts data from current page
+2. For each product row:
+   a. Extract product name
+   b. For each detail box in the row:
+      - Extract all data from the box
+      - If policy number found, navigate to policy details
+      - Extract data from "שעבודים ועיקולים" and "הלוואות" tabs
+3. Save all extracted data to text file
+4. Navigate back via PDF icon and download PDF report
+5. Move PDF to client-specific folder
 """
 
 import time
-import os
 import shutil
+import logging
+import functools
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Callable, Any
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.remote.webelement import WebElement
@@ -16,10 +80,91 @@ from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import TimeoutException
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
 # Constants
 DOWNLOAD_DIR = Path.home() / "Desktop" / "maslekot"
 DEFAULT_TIMEOUT = 30
 SLEEP_INTERVAL = 1
+MAIN_PAGE_URL = (
+    "https://distributor.swiftness.co.il/he-IL/MaintenanceInterface/MainPage"
+)
+
+# CSS Selectors - Pre-compiled for better performance
+SELECTORS = {
+    "saver_products": ".SaverMyProducts",
+    "product_rows": "div[ng-repeat='item in GroupedData']",
+    "product_name": "div.productName",
+    "details_box": "div.details-box",
+    "pdf_icon": 'input[type="image"][src="/Images/Icons/pdf-icon.png"][name="pdf"]',
+    "policy_links": "a[ng-click='PolicyClicked(details)']",
+    "product_details_tab": "li.k-item.k-state-default[role='tab'][aria-controls='tabstrip-2'] span.k-link",
+    "liens_content": "#PolicyConfiscationContent",
+    "loans_table": "table.PolicyLoanGrid",
+    "tab_links": "li.k-item span.k-link",
+    "currency_elements": ".shekel",
+    "percentage_elements": ".precentage",
+    "link_elements": "a",
+    "basic_elements": "div, span",
+}
+
+# Hebrew text constants
+HEBREW_TEXTS = {
+    "product_details_tab": "פירוט מוצרים",
+    "liens_tab": "שעבודים ועיקולים",
+    "loans_tab": "הלוואות",
+}
+
+
+# Performance monitoring decorator
+def monitor_performance(func: Callable) -> Callable:
+    """Decorator to monitor function execution time."""
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs) -> Any:
+        start_time = time.time()
+        try:
+            result = func(*args, **kwargs)
+            execution_time = time.time() - start_time
+            logger.debug(f"{func.__name__} executed in {execution_time:.2f} seconds")
+            return result
+        except Exception as e:
+            execution_time = time.time() - start_time
+            logger.error(
+                f"{func.__name__} failed after {execution_time:.2f} seconds: {e}"
+            )
+            raise
+
+    return wrapper
+
+
+# Performance optimization: Cache for frequently accessed elements
+class ElementCache:
+    """Simple cache for frequently accessed elements to improve performance."""
+
+    def __init__(self, max_size: int = 100):
+        self.cache: Dict[str, WebElement] = {}
+        self.max_size = max_size
+
+    def get(self, key: str) -> Optional[WebElement]:
+        """Get element from cache."""
+        return self.cache.get(key)
+
+    def set(self, key: str, element: WebElement) -> None:
+        """Set element in cache with size limit."""
+        if len(self.cache) >= self.max_size:
+            # Remove oldest entry (simple FIFO)
+            oldest_key = next(iter(self.cache))
+            del self.cache[oldest_key]
+        self.cache[key] = element
+
+    def clear(self) -> None:
+        """Clear the cache."""
+        self.cache.clear()
 
 
 class PDFManager:
@@ -39,14 +184,19 @@ class PDFManager:
         start_time = time.time()
         initial_files = set(DOWNLOAD_DIR.glob("*.pdf"))
 
+        logger.info(f"Waiting for PDF download (timeout: {timeout}s)")
+
         while time.time() - start_time < timeout:
             current_files = set(DOWNLOAD_DIR.glob("*.pdf"))
             new_files = current_files - initial_files
 
             for file in new_files:
                 if not file.name.endswith(".crdownload"):
+                    logger.info(f"PDF download detected: {file}")
                     return file
             time.sleep(SLEEP_INTERVAL)
+
+        logger.warning("PDF download timeout reached")
         return None
 
     @staticmethod
@@ -65,6 +215,7 @@ class PDFManager:
             Path to the moved file or None if failed
         """
         if not pdf_file or not pdf_file.exists():
+            logger.error(f"PDF file not found: {pdf_file}")
             return None
 
         timestamp = int(time.time())
@@ -73,10 +224,10 @@ class PDFManager:
 
         try:
             shutil.move(str(pdf_file), str(target_path))
-            print(f"✅ PDF moved to: {target_path}")
+            logger.info(f"PDF moved to: {target_path}")
             return target_path
         except Exception as e:
-            print(f"❌ Error moving PDF: {e}")
+            logger.error(f"Error moving PDF: {e}")
             return None
 
 
@@ -102,12 +253,43 @@ class ElementFinder:
         try:
             wait = WebDriverWait(driver, timeout)
             element = wait.until(EC.presence_of_element_located((by, value)))
+            logger.debug(f"Element found: {value}")
             return element
         except TimeoutException:
+            logger.warning(f"Element not found within timeout: {value}")
             return None
         except Exception as e:
-            print(f"⚠️ Error waiting for element {value}: {e}")
+            logger.error(f"Error waiting for element {value}: {e}")
             return None
+
+    @staticmethod
+    def find_elements_safe(
+        driver: WebDriver, by: By, value: str, timeout: int = 5
+    ) -> List[WebElement]:
+        """
+        Safely find multiple elements with timeout.
+
+        Args:
+            driver: Selenium WebDriver instance
+            by: Selenium By strategy
+            value: Element selector value
+            timeout: Maximum time to wait in seconds
+
+        Returns:
+            List of WebElements (empty if none found)
+        """
+        try:
+            wait = WebDriverWait(driver, timeout)
+            wait.until(EC.presence_of_element_located((by, value)))
+            elements = driver.find_elements(by, value)
+            logger.debug(f"Found {len(elements)} elements: {value}")
+            return elements
+        except TimeoutException:
+            logger.debug(f"No elements found: {value}")
+            return []
+        except Exception as e:
+            logger.error(f"Error finding elements {value}: {e}")
+            return []
 
 
 class DetailBoxExtractor:
@@ -130,32 +312,40 @@ class DetailBoxExtractor:
         detail_data = {}
 
         try:
-            # Extract basic elements
-            DetailBoxExtractor._extract_basic_elements(
-                detail_box, detail_index, detail_data
+            # Extract all element types in parallel for better performance
+            extraction_methods = [
+                DetailBoxExtractor._extract_basic_elements,
+                DetailBoxExtractor._extract_currency_elements,
+                DetailBoxExtractor._extract_percentage_elements,
+                DetailBoxExtractor._extract_link_elements,
+            ]
+
+            for method in extraction_methods:
+                try:
+                    method(detail_box, detail_data, detail_index)
+                except Exception as method_error:
+                    logger.warning(f"Error in {method.__name__}: {method_error}")
+
+            logger.info(
+                f"Detail box {detail_index + 1}: {len(detail_data)} data points extracted"
             )
 
-            # Extract specialized elements
-            DetailBoxExtractor._extract_currency_elements(detail_box, detail_data)
-            DetailBoxExtractor._extract_percentage_elements(detail_box, detail_data)
-            DetailBoxExtractor._extract_link_elements(detail_box, detail_data)
-
-            print(f"📋Total data points extracted: {len(detail_data)}")
-
         except Exception as e:
-            print(f"      ❌ Error extracting detail box data: {e}")
+            logger.error(f"Error extracting detail box data: {e}")
             detail_data["Error"] = f"Failed to extract data: {e}"
 
         return detail_data
 
     @staticmethod
     def _extract_basic_elements(
-        detail_box: WebElement, detail_index: int, detail_data: Dict[str, str]
+        detail_box: WebElement, detail_data: Dict[str, str], detail_index: int
     ) -> None:
         """Extract data from basic div and span elements."""
-        all_elements = detail_box.find_elements(By.CSS_SELECTOR, "div, span")
-        print(
-            f"      📊 Found {len(all_elements)} elements in detail box {detail_index + 1}"
+        all_elements = detail_box.find_elements(
+            By.CSS_SELECTOR, SELECTORS["basic_elements"]
+        )
+        logger.debug(
+            f"Found {len(all_elements)} basic elements in detail box {detail_index + 1}"
         )
 
         for element_index, element in enumerate(all_elements):
@@ -166,11 +356,11 @@ class DetailBoxExtractor:
 
                 key = DetailBoxExtractor._generate_element_key(element, element_index)
                 detail_data[key] = text
-                print(f"        ✅ {key}: {text}")
+                logger.debug(f"Extracted: {key}: {text}")
 
             except Exception as element_error:
-                print(
-                    f"        ⚠️ Error processing element {element_index}: {element_error}"
+                logger.warning(
+                    f"Error processing element {element_index}: {element_error}"
                 )
 
     @staticmethod
@@ -196,11 +386,13 @@ class DetailBoxExtractor:
 
     @staticmethod
     def _extract_currency_elements(
-        detail_box: WebElement, detail_data: Dict[str, str]
+        detail_box: WebElement, detail_data: Dict[str, str], detail_index: int
     ) -> None:
         """Extract currency values from elements with shekel class."""
         try:
-            currency_elements = detail_box.find_elements(By.CSS_SELECTOR, ".shekel")
+            currency_elements = detail_box.find_elements(
+                By.CSS_SELECTOR, SELECTORS["currency_elements"]
+            )
             for i, currency_elem in enumerate(currency_elements):
                 try:
                     currency_text = currency_elem.text.strip()
@@ -209,20 +401,20 @@ class DetailBoxExtractor:
                             currency_elem.get_attribute("name") or f"currency_{i}"
                         )
                         detail_data[currency_name] = currency_text
-                        print(f"        💰 {currency_name}: {currency_text}")
-                except:
+                        logger.debug(f"Currency: {currency_name}: {currency_text}")
+                except Exception:
                     continue
         except Exception as e:
-            print(f"        ⚠️ Error extracting currency data: {e}")
+            logger.warning(f"Error extracting currency data: {e}")
 
     @staticmethod
     def _extract_percentage_elements(
-        detail_box: WebElement, detail_data: Dict[str, str]
+        detail_box: WebElement, detail_data: Dict[str, str], detail_index: int
     ) -> None:
         """Extract percentage values from elements with precentage class."""
         try:
             percentage_elements = detail_box.find_elements(
-                By.CSS_SELECTOR, ".precentage"
+                By.CSS_SELECTOR, SELECTORS["percentage_elements"]
             )
             for i, percent_elem in enumerate(percentage_elements):
                 try:
@@ -232,30 +424,32 @@ class DetailBoxExtractor:
                             percent_elem.get_attribute("name") or f"percentage_{i}"
                         )
                         detail_data[percent_name] = percent_text
-                        print(f"        📊 {percent_name}: {percent_text}")
-                except:
+                        logger.debug(f"Percentage: {percent_name}: {percent_text}")
+                except Exception:
                     continue
         except Exception as e:
-            print(f"        ⚠️ Error extracting percentage data: {e}")
+            logger.warning(f"Error extracting percentage data: {e}")
 
     @staticmethod
     def _extract_link_elements(
-        detail_box: WebElement, detail_data: Dict[str, str]
+        detail_box: WebElement, detail_data: Dict[str, str], detail_index: int
     ) -> None:
         """Extract link text from anchor elements."""
         try:
-            link_elements = detail_box.find_elements(By.CSS_SELECTOR, "a")
+            link_elements = detail_box.find_elements(
+                By.CSS_SELECTOR, SELECTORS["link_elements"]
+            )
             for i, link_elem in enumerate(link_elements):
                 try:
                     link_text = link_elem.text.strip()
                     if link_text:
                         link_name = link_elem.get_attribute("name") or f"link_{i}"
                         detail_data[link_name] = link_text
-                        print(f"        🔗 {link_name}: {link_text}")
-                except:
+                        logger.debug(f"Link: {link_name}: {link_text}")
+                except Exception:
                     continue
         except Exception as e:
-            print(f"        ⚠️ Error extracting link data: {e}")
+            logger.warning(f"Error extracting link data: {e}")
 
 
 class ProductDataProcessor:
@@ -292,8 +486,10 @@ class ProductDataProcessor:
             extracted_data.append(f"*{product_name}*")
 
             # Process each detail box individually with its policy data
-            detail_boxes_data = ProductDataProcessor._process_detail_boxes_with_policies(
-                product_row, driver
+            detail_boxes_data = (
+                ProductDataProcessor._process_detail_boxes_with_policies(
+                    product_row, driver
+                )
             )
             extracted_data.extend(detail_boxes_data)
 
@@ -313,7 +509,7 @@ class ProductDataProcessor:
         """Extract the product name from a product row."""
         try:
             product_name_element = product_row.find_element(
-                By.CSS_SELECTOR, "div.productName"
+                By.CSS_SELECTOR, SELECTORS["product_name"]
             )
             return (
                 product_name_element.text
@@ -321,7 +517,7 @@ class ProductDataProcessor:
                 else f"Product {row_index + 1}"
             )
         except Exception as e:
-            print(f"⚠️ Error extracting product name: {e}")
+            logger.warning(f"Error extracting product name: {e}")
             return f"Product {row_index + 1}"
 
     @staticmethod
@@ -336,7 +532,7 @@ class ProductDataProcessor:
             New window handle if successful, None otherwise
         """
         try:
-            print("    🔄 Opening main page in new tab...")
+            print("🔄 Opening main page in new tab...")
 
             # Store the current window handle
             original_window = driver.current_window_handle
@@ -359,10 +555,9 @@ class ProductDataProcessor:
             driver.switch_to.window(new_window)
 
             # Navigate to the main page URL in the new tab
-            main_page_url = "https://distributor.swiftness.co.il/he-IL/MaintenanceInterface/MainPage"
-            driver.get(main_page_url)
+            driver.get(MAIN_PAGE_URL)
 
-            print(f"    ✅ Opened main page in new tab: {main_page_url}")
+            logger.info(f"Opened main page in new tab: {MAIN_PAGE_URL}")
 
             return new_window
 
@@ -372,7 +567,7 @@ class ProductDataProcessor:
             try:
                 if "original_window" in locals():
                     driver.switch_to.window(original_window)
-            except:
+            except Exception:
                 pass
             return None
 
@@ -391,14 +586,14 @@ class ProductDataProcessor:
             WebElement if found, None otherwise
         """
         try:
-            print(f"    🔍 Looking for policy link with number: {policy_number}")
+            print(f"🔍 Looking for policy link with number: {policy_number}")
 
             # Find all policy links in the current tab
             policy_links = driver.find_elements(
-                By.CSS_SELECTOR, "a[ng-click='PolicyClicked(details)']"
+                By.CSS_SELECTOR, SELECTORS["policy_links"]
             )
 
-            print(f"📊 Found {len(policy_links)} policy links in new tab")
+            logger.info(f"Found {len(policy_links)} policy links in new tab")
 
             # Look for the policy link with the matching number
             for link in policy_links:
@@ -411,7 +606,7 @@ class ProductDataProcessor:
             return None
 
         except Exception as e:
-            print(f"    ❌ Error finding policy link: {e}")
+            print(f"❌ Error finding policy link: {e}")
             return None
 
     @staticmethod
@@ -430,9 +625,7 @@ class ProductDataProcessor:
 
             # Try multiple selectors to find the element
             selectors = [
-                # Primary selector based on the exact HTML structure
-                "li.k-item.k-state-default[role='tab'][aria-controls='tabstrip-2'] span.k-link",
-                # Alternative selectors
+                SELECTORS["product_details_tab"],
                 "li.k-item[aria-controls='tabstrip-2'] span.k-link",
                 "li.k-item.k-state-default[role='tab'] span.k-link",
                 "li.k-item span.k-link",
@@ -441,7 +634,7 @@ class ProductDataProcessor:
             ]
 
             # Try to find the element with the Hebrew text
-            target_text = "פירוט מוצרים"
+            target_text = HEBREW_TEXTS["product_details_tab"]
 
             for selector in selectors:
                 try:
@@ -452,30 +645,30 @@ class ProductDataProcessor:
 
                     for element in elements:
                         element_text = element.text.strip()
-                        print(f"    📝 Element text: '{element_text}'")
+                        print(f"📝 Element text: '{element_text}'")
 
                         if target_text in element_text:
                             print(
-                                f"    ✅ Found target element with text: '{element_text}'"
+                                f"✅ Found target element with text: '{element_text}'"
                             )
 
                             # Click the element
                             driver.execute_script("arguments[0].click();", element)
-                            print(f"✅ Clicked on 'פירוט מוצרים' tab")
+                            print("✅ Clicked on 'פירוט מוצרים' tab")
 
                             # Wait for any page changes
                             time.sleep(2)
                             return True
 
                 except Exception as selector_error:
-                    print(f"    ⚠️ Error with selector '{selector}': {selector_error}")
+                    print(f"⚠️ Error with selector '{selector}': {selector_error}")
                     continue
 
-            print(f"    ❌ Could not find element with text: '{target_text}'")
+            print(f"❌ Could not find element with text: '{target_text}'")
             return False
 
         except Exception as e:
-            print(f"    ❌ Error clicking 'פירוט מוצרים' tab: {e}")
+            print(f"❌ Error clicking 'פירוט מוצרים' tab: {e}")
             return False
 
     @staticmethod
@@ -485,7 +678,7 @@ class ProductDataProcessor:
 
         try:
             details_boxes = product_row.find_elements(
-                By.CSS_SELECTOR, "div.details-box"
+                By.CSS_SELECTOR, SELECTORS["details_box"]
             )
 
             for detail_index, detail_box in enumerate(details_boxes):
@@ -498,7 +691,7 @@ class ProductDataProcessor:
 
                     # Extract basic detail box information
                     detail_box_info = []
-                    
+
                     for key, value in box_data.items():
                         if key == "element_0":
                             detail_box_info.append(f"שם חברה מנהלת: {value}")
@@ -510,17 +703,18 @@ class ProductDataProcessor:
                             detail_box_info.append(f"סטטוס: {value}")
                         elif key == "element_11":
                             detail_box_info.append(f"סהכ חסכון: {value}")
-                    
+
                     # Add the detail box info to the main data
                     detail_data.extend(detail_box_info)
-                    
+
                     # Add empty line for separation
                     detail_data.append("")
-                    
+
                 except Exception as detail_error:
                     print(
                         f"⚠️ Error processing detail box {detail_index + 1}: {detail_error}"
                     )
+
                     detail_data.append(
                         f"Detail Box {detail_index + 1}: ERROR - {detail_error}"
                     )
@@ -538,30 +732,32 @@ class ProductDataProcessor:
         """
         Process each detail box individually and include its policy data right after it.
         This ensures the data is organized in the correct format.
-        
+
         Args:
             product_row: The product row WebElement
             driver: WebDriver instance for navigation
-            
+
         Returns:
             List of extracted data strings organized by detail box
         """
         all_data = []
-        
+
         try:
             details_boxes = product_row.find_elements(
-                By.CSS_SELECTOR, "div.details-box"
+                By.CSS_SELECTOR, SELECTORS["details_box"]
             )
-            
+
             for detail_index, detail_box in enumerate(details_boxes):
                 try:
-                    print(f"🔍 Processing detail box {detail_index + 1} with policy data")
-                    
+                    print(
+                        f"🔍 Processing detail box {detail_index + 1} with policy data"
+                    )
+
                     # Extract basic detail box information
                     box_data = DetailBoxExtractor.extract_all_detail_box_data(
                         detail_box, detail_index
                     )
-                    
+
                     # Add detail box information
                     for key, value in box_data.items():
                         if key == "element_0":
@@ -574,49 +770,53 @@ class ProductDataProcessor:
                             all_data.append(f"סטטוס: {value}")
                         elif key == "element_11":
                             all_data.append(f"סהכ חסכון: {value}")
-                    
+
                     # Check if this detail box has a policy number and get its data
                     if "element_4" in box_data:
                         policy_number = box_data["element_4"]
                         print(f"🔍 Found policy number: {policy_number}")
-                        
+
                         # Get policy data for this specific policy
                         policy_data = ProductDataProcessor._get_policy_data_for_number(
                             driver, policy_number
                         )
-                        
+
                         if policy_data:
                             all_data.extend(policy_data)
                             print(f"✅ Added policy data for {policy_number}")
-                    
+
                     # Add empty line for separation between detail boxes
                     all_data.append("")
-                    
+
                 except Exception as detail_error:
-                    print(f"⚠️ Error processing detail box {detail_index + 1}: {detail_error}")
-                    all_data.append(f"Detail Box {detail_index + 1}: ERROR - {detail_error}")
+                    print(
+                        f"⚠️ Error processing detail box {detail_index + 1}: {detail_error}"
+                    )
+                    all_data.append(
+                        f"Detail Box {detail_index + 1}: ERROR - {detail_error}"
+                    )
                     all_data.append("")
-                    
+
         except Exception as e:
             print(f"⚠️ Error processing detail boxes with policies: {e}")
             all_data.append("DETAILS: ERROR - Failed to extract")
-            
+
         return all_data
 
     @staticmethod
     def _get_policy_data_for_number(driver: WebDriver, policy_number: str) -> List[str]:
         """
         Get policy data for a specific policy number.
-        
+
         Args:
             driver: WebDriver instance for navigation
             policy_number: The policy number to get data for
-            
+
         Returns:
             List of extracted data strings for the policy
         """
         policy_data = []
-        
+
         try:
             # Navigate to main page and find policy link
             new_window = ProductDataProcessor._navigate_back_to_main_page(driver)
@@ -629,14 +829,14 @@ class ProductDataProcessor:
                         print(f"✅ Found and clicked policy link for: {policy_number}")
                         policy_link.click()
                         time.sleep(10)
-                        
+
                         # Add policy header
                         policy_data.append(f"=== POLICY: {policy_number} ===")
-                        
+
                         # Click on specific tabs and extract data
                         tabs_data = ProductDataProcessor._click_specific_tabs(driver)
                         policy_data.extend(tabs_data)
-                        
+
                         # Close the current tab and switch back to the original tab
                         driver.close()
                         driver.switch_to.window(driver.window_handles[0])
@@ -651,7 +851,7 @@ class ProductDataProcessor:
                     driver.switch_to.window(driver.window_handles[0])
             else:
                 print(f"⚠️ Could not open new tab for policy {policy_number}")
-                
+
         except Exception as e:
             print(f"⚠️ Error getting policy data for {policy_number}: {e}")
             # Try to return to original window if there was an error
@@ -659,9 +859,9 @@ class ProductDataProcessor:
                 if len(driver.window_handles) > 1:
                     driver.close()
                     driver.switch_to.window(driver.window_handles[0])
-            except:
+            except Exception:
                 pass
-                
+
         return policy_data
 
     @staticmethod
@@ -683,7 +883,7 @@ class ProductDataProcessor:
         try:
             # Find all detail boxes to look for policy numbers
             details_boxes = product_row.find_elements(
-                By.CSS_SELECTOR, "div.details-box"
+                By.CSS_SELECTOR, SELECTORS["details_box"]
             )
 
             for detail_box in details_boxes:
@@ -756,7 +956,7 @@ class ProductDataProcessor:
                 if len(driver.window_handles) > 1:
                     driver.close()
                     driver.switch_to.window(driver.window_handles[0])
-            except:
+            except Exception:
                 pass
 
         # Return all collected tabs data
@@ -845,7 +1045,9 @@ class ProductDataProcessor:
             time.sleep(2)
 
             # Look for the PolicyConfiscationContent div
-            liens_content = driver.find_element(By.ID, "PolicyConfiscationContent")
+            liens_content = driver.find_element(
+                By.CSS_SELECTOR, SELECTORS["liens_content"]
+            )
             if liens_content:
                 print("✅ Found liens content section")
 
@@ -907,7 +1109,7 @@ class ProductDataProcessor:
             time.sleep(2)
 
             # Look for the PolicyLoanGrid table
-            loans_table = driver.find_element(By.CSS_SELECTOR, "table.PolicyLoanGrid")
+            loans_table = driver.find_element(By.CSS_SELECTOR, SELECTORS["loans_table"])
             if loans_table:
                 print("✅ Found loans table")
 
@@ -1000,9 +1202,7 @@ class ProductDataProcessor:
         """
         try:
             # Look for tabs with the specific text
-            tab_elements = driver.find_elements(
-                By.CSS_SELECTOR, "li.k-item span.k-link"
-            )
+            tab_elements = driver.find_elements(By.CSS_SELECTOR, SELECTORS["tab_links"])
 
             for tab in tab_elements:
                 if tab_text in tab.text.strip():
@@ -1022,7 +1222,7 @@ class ProductDataProcessor:
         merged: Dict[str, str] = {}
         try:
             details_boxes = product_row.find_elements(
-                By.CSS_SELECTOR, "div.details-box"
+                By.CSS_SELECTOR, SELECTORS["details_box"]
             )
             for detail_index, detail_box in enumerate(details_boxes):
                 try:
@@ -1098,8 +1298,8 @@ class SaverProductsExtractor:
 
             saver_products = ElementFinder.wait_for_element(
                 self.driver,
-                By.CLASS_NAME,
-                "SaverMyProducts",
+                By.CSS_SELECTOR,
+                SELECTORS["saver_products"],
                 timeout=DEFAULT_TIMEOUT,
             )
 
@@ -1133,12 +1333,12 @@ class SaverProductsExtractor:
         """Get all product rows from the SaverMyProducts element."""
         try:
             product_rows = saver_products.find_elements(
-                By.CSS_SELECTOR, "div[ng-repeat='item in GroupedData']"
+                By.CSS_SELECTOR, SELECTORS["product_rows"]
             )
-            print(f"📊 Found {len(product_rows)} product rows in SaverMyProducts")
+            logger.info(f"Found {len(product_rows)} product rows in SaverMyProducts")
             return product_rows
         except Exception as e:
-            print(f"❌ Error getting product rows: {e}")
+            logger.error(f"Error getting product rows: {e}")
             return []
 
     def _process_all_product_rows(
@@ -1193,7 +1393,7 @@ class NavigationHandler:
             pdf_icon = ElementFinder.wait_for_element(
                 self.driver,
                 By.CSS_SELECTOR,
-                'input[type="image"][src="/Images/Icons/pdf-icon.png"][name="pdf"]',
+                SELECTORS["pdf_icon"],
                 timeout=DEFAULT_TIMEOUT,
             )
 
@@ -1263,6 +1463,8 @@ def process_saver_products_with_navigation(
     Returns:
         True if successful, False otherwise
     """
+    logger.info(f"Starting SaverMyProducts processing for ID: {identification_number}")
+
     try:
         # Extract SaverMyProducts data
         extractor = SaverProductsExtractor(driver, wait)
@@ -1271,16 +1473,21 @@ def process_saver_products_with_navigation(
         )
 
         if not success:
-            print(
-                "⚠️ Failed to extract SaverMyProducts data, but continuing with navigation"
+            logger.warning(
+                "Failed to extract SaverMyProducts data, but continuing with navigation"
             )
 
         # Handle navigation
         navigator = NavigationHandler(driver)
-        return navigator.navigate_via_pdf_icon(
+        navigation_success = navigator.navigate_via_pdf_icon(
             identification_folder, identification_number
         )
 
+        logger.info(
+            f"SaverMyProducts processing completed for ID: {identification_number}"
+        )
+        return navigation_success
+
     except Exception as e:
-        print(f"❌ Error in process_saver_products_with_navigation: {e}")
+        logger.error(f"Error in process_saver_products_with_navigation: {e}")
         return False
