@@ -1143,7 +1143,6 @@ class ProductDataProcessor:
                                 row_data.append(f"{headers[cell_index]}: {cell_text}")
 
                         if row_data:
-                            extracted_data.append(f"    הלוואה {row_index + 1}:")
                             extracted_data.extend(
                                 [f"        {item}" for item in row_data]
                             )
