@@ -666,8 +666,10 @@ class ProductDataProcessor:
                                 )
                                 print("✅ Policy links are now available")
                             except TimeoutException:
-                                print("⚠️ Timeout waiting for policy links, but continuing...")
-                            
+                                print(
+                                    "⚠️ Timeout waiting for policy links, but continuing..."
+                                )
+
                             return True
 
                 except Exception as selector_error:
@@ -774,8 +776,6 @@ class ProductDataProcessor:
                             all_data.append(f"שם חברה מנהלת: {value}")
                         elif key == f"productTypeName{detail_index}":
                             all_data.append(f"סוג מוצר: {value}")
-                        elif key == "element_4":
-                            all_data.append(f"מספר פוליסה: {value}")
                         elif key == f"poliyStatusName{detail_index}":
                             all_data.append(f"סטטוס: {value}")
                         elif key == "element_11":
@@ -838,10 +838,33 @@ class ProductDataProcessor:
                     if policy_link:
                         print(f"✅ Found and clicked policy link for: {policy_number}")
                         policy_link.click()
-                        time.sleep(10)
+
+                        # Wait for new tab to open and load
+                        try:
+                            # Wait for a new window handle to appear (policy tab)
+                            wait = WebDriverWait(driver, 60)
+                            wait.until(lambda driver: len(driver.window_handles) > 2)
+
+                            # Switch to the new policy tab (the last one)
+                            driver.switch_to.window(driver.window_handles[-1])
+                            print("✅ Switched to new policy tab")
+
+                            # Wait for tab elements to be available in the new tab
+                            wait.until(
+                                EC.presence_of_element_located(
+                                    (By.CSS_SELECTOR, SELECTORS["tab_links"])
+                                )
+                            )
+                            print("✅ Tab elements are now available")
+
+                        except TimeoutException:
+                            print(
+                                "⚠️ Timeout waiting for new tab or tab elements, but continuing..."
+                            )
 
                         # Add policy header
-                        policy_data.append(f"=== POLICY: {policy_number} ===")
+                        policy_data.append("")
+                        policy_data.append(f"מספר פוליסה: {policy_number}")
 
                         # Click on specific tabs and extract data
                         tabs_data = ProductDataProcessor._click_specific_tabs(driver)
@@ -873,110 +896,6 @@ class ProductDataProcessor:
                 pass
 
         return policy_data
-
-    @staticmethod
-    def _handle_policy_navigation(
-        product_row: WebElement, driver: WebDriver
-    ) -> List[str]:
-        """
-        Handle navigation operations when a policy number is found.
-
-        Args:
-            product_row: The product row WebElement
-            driver: WebDriver instance for navigation
-
-        Returns:
-            List of extracted data strings from tabs for all policies
-        """
-        all_tabs_data = []
-
-        try:
-            # Find all detail boxes to look for policy numbers
-            details_boxes = product_row.find_elements(
-                By.CSS_SELECTOR, SELECTORS["details_box"]
-            )
-
-            for detail_box in details_boxes:
-                box_data = DetailBoxExtractor.extract_all_detail_box_data(
-                    detail_box,
-                    0,  # Use 0 as index since we're just looking for policy number
-                )
-
-                # Look for policy number (element_4)
-                if "element_4" in box_data:
-                    policy_number = box_data["element_4"]
-                    print(f"🔍 Found policy number: {policy_number}")
-
-                    # Navigate to main page and find policy link
-                    new_window = ProductDataProcessor._navigate_back_to_main_page(
-                        driver
-                    )
-                    if new_window:
-                        if ProductDataProcessor._click_product_details_tab(driver):
-                            policy_link = (
-                                ProductDataProcessor._find_policy_link_by_number(
-                                    driver, policy_number
-                                )
-                            )
-                            if policy_link:
-                                print(
-                                    f"✅ Found and clicked policy link for: {policy_number}"
-                                )
-                                policy_link.click()
-                                time.sleep(10)
-
-                                # Add policy header to the tabs data
-                                policy_header = [f"=== POLICY: {policy_number} ==="]
-
-                                # Click on specific tabs: שעבודים ועיקולים and הלוואות
-                                # and extract data from both tabs
-                                tabs_data = ProductDataProcessor._click_specific_tabs(
-                                    driver
-                                )
-
-                                # Combine policy header with tabs data
-                                policy_data = (
-                                    policy_header + tabs_data + [""]
-                                )  # Add empty line for separation
-                                all_tabs_data.extend(policy_data)
-
-                                print(f"✅ Collected data for policy {policy_number}")
-
-                                # Close the current tab and switch back to the original tab
-                                driver.close()
-                                driver.switch_to.window(driver.window_handles[0])
-                                print("✅ Returned to original tab")
-                            else:
-                                # Close tab and return to original if tab click failed
-                                driver.close()
-                                driver.switch_to.window(driver.window_handles[0])
-                        else:
-                            # Close tab and return to original if tab click failed
-                            driver.close()
-                            driver.switch_to.window(driver.window_handles[0])
-                    else:
-                        print(f"⚠️ Could not open new tab for policy {policy_number}")
-
-                    # Continue processing other detail boxes (don't break)
-
-        except Exception as e:
-            print(f"⚠️ Error handling policy navigation: {e}")
-            # Try to return to original window if there was an error
-            try:
-                if len(driver.window_handles) > 1:
-                    driver.close()
-                    driver.switch_to.window(driver.window_handles[0])
-            except Exception:
-                pass
-
-        # Return all collected tabs data
-        if all_tabs_data:
-            print(
-                f"📋 Total policies processed: {len([d for d in all_tabs_data if '=== POLICY:' in d])}"
-            )
-            print(f"📋 Total data points collected: {len(all_tabs_data)}")
-
-        return all_tabs_data
 
     @staticmethod
     def _click_specific_tabs(driver: WebDriver) -> List[str]:
