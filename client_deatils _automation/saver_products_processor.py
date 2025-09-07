@@ -684,60 +684,6 @@ class ProductDataProcessor:
             return False
 
     @staticmethod
-    def _extract_detail_box_data(product_row: WebElement) -> List[str]:
-        """Extract data from detail boxes in a product row."""
-        detail_data = []
-
-        try:
-            details_boxes = product_row.find_elements(
-                By.CSS_SELECTOR, SELECTORS["details_box"]
-            )
-
-            for detail_index, detail_box in enumerate(details_boxes):
-                try:
-                    print(f"🔍 Processing detail box {detail_index + 1}")
-
-                    box_data = DetailBoxExtractor.extract_all_detail_box_data(
-                        detail_box, detail_index
-                    )
-
-                    # Extract basic detail box information
-                    detail_box_info = []
-
-                    for key, value in box_data.items():
-                        if key == "element_0":
-                            detail_box_info.append(f"שם חברה מנהלת: {value}")
-                        elif key == f"productTypeName{detail_index}":
-                            detail_box_info.append(f"סוג מוצר: {value}")
-                        elif key == "element_4":
-                            detail_box_info.append(f"מספר פוליסה: {value}")
-                        elif key == f"poliyStatusName{detail_index}":
-                            detail_box_info.append(f"סטטוס: {value}")
-                        elif key == "element_11":
-                            detail_box_info.append(f"סהכ חסכון: {value}")
-
-                    # Add the detail box info to the main data
-                    detail_data.extend(detail_box_info)
-
-                    # Add empty line for separation
-                    detail_data.append("")
-
-                except Exception as detail_error:
-                    print(
-                        f"⚠️ Error processing detail box {detail_index + 1}: {detail_error}"
-                    )
-
-                    detail_data.append(
-                        f"Detail Box {detail_index + 1}: ERROR - {detail_error}"
-                    )
-
-        except Exception as e:
-            print(f"⚠️ Error extracting detail box data: {e}")
-            detail_data.append("DETAILS: ERROR - Failed to extract")
-
-        return detail_data
-
-    @staticmethod
     def _process_detail_boxes_with_policies(
         product_row: WebElement, driver: WebDriver
     ) -> List[str]:
