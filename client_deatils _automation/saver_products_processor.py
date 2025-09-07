@@ -839,28 +839,28 @@ class ProductDataProcessor:
                         print(f"✅ Found and clicked policy link for: {policy_number}")
                         policy_link.click()
 
-                        # Wait for new tab to open and load
-                        try:
-                            # Wait for a new window handle to appear (policy tab)
-                            wait = WebDriverWait(driver, 60)
-                            wait.until(lambda driver: len(driver.window_handles) > 2)
+                        # # Wait for new tab to open and load
+                        # try:
+                        #     # Wait for a new window handle to appear (policy tab)
+                        #     wait = WebDriverWait(driver, 60)
+                        #     wait.until(lambda driver: len(driver.window_handles) > 2)
 
-                            # Switch to the new policy tab (the last one)
-                            driver.switch_to.window(driver.window_handles[-1])
-                            print("✅ Switched to new policy tab")
+                        #     # Switch to the new policy tab (the last one)
+                        #     driver.switch_to.window(driver.window_handles[-1])
+                        #     print("✅ Switched to new policy tab")
 
-                            # Wait for tab elements to be available in the new tab
-                            wait.until(
-                                EC.presence_of_element_located(
-                                    (By.CSS_SELECTOR, SELECTORS["tab_links"])
-                                )
-                            )
-                            print("✅ Tab elements are now available")
+                        #     # Wait for tab elements to be available in the new tab
+                        #     wait.until(
+                        #         EC.presence_of_element_located(
+                        #             (By.CSS_SELECTOR, SELECTORS["tab_links"])
+                        #         )
+                        #     )
+                        #     print("✅ Tab elements are now available")
 
-                        except TimeoutException:
-                            print(
-                                "⚠️ Timeout waiting for new tab or tab elements, but continuing..."
-                            )
+                        # except TimeoutException:
+                        #     print(
+                        #         "⚠️ Timeout waiting for new tab or tab elements, but continuing..."
+                        #     )
 
                         # Add policy header
                         policy_data.append("")
