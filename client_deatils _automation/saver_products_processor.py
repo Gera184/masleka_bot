@@ -33,7 +33,7 @@ FLOW OVERVIEW:
                          └── ProductDataProcessor._extract_loans_data() - Extract "הלוואות" data
 
 3. FILE SAVING PHASE:
-   - DataFileManager.save_extracted_data() - Save extracted data to text file
+   - DataFileManager.save_extracted_data() - Save extracted data to PDF file with Hebrew support
 
 4. NAVIGATION & PDF DOWNLOAD PHASE:
    - NavigationHandler.__init__() - Initialize navigator
@@ -62,7 +62,7 @@ EXECUTION ORDER:
       - Extract all data from the box
       - If policy number found, navigate to policy details
       - Extract data from "שעבודים ועיקולים" and "הלוואות" tabs
-3. Save all extracted data to text file
+3. Save all extracted data to PDF file with Hebrew text support
 4. Navigate back via PDF icon and download PDF report
 5. Move PDF to client-specific folder
 """
@@ -79,6 +79,12 @@ from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import TimeoutException
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
 # Configure logging
 logging.basicConfig(
@@ -118,6 +124,132 @@ HEBREW_TEXTS = {
     "liens_tab": "שעבודים ועיקולים",
     "loans_tab": "הלוואות",
 }
+
+
+# Hebrew font configuration
+def configure_hebrew_fonts():
+    """Configure Hebrew fonts for PDF generation."""
+    try:
+        # Try to register Hebrew-supporting fonts in order of preference
+        hebrew_fonts = [
+            ("Arial", "arial.ttf"),  # Arial usually has Hebrew support
+            ("Tahoma", "tahoma.ttf"),  # Tahoma has excellent Hebrew support
+            ("Calibri", "calibri.ttf"),  # Calibri has good Hebrew support
+            ("TimesNewRoman", "times.ttf"),  # Times New Roman has Hebrew support
+        ]
+
+        # Common font paths for Hebrew fonts
+        font_paths = [
+            "C:/Windows/Fonts/",
+            "C:/Windows/Fonts/arial.ttf",
+            "C:/Windows/Fonts/tahoma.ttf",
+            "C:/Windows/Fonts/calibri.ttf",
+            "C:/Windows/Fonts/times.ttf",
+            "/System/Library/Fonts/",
+            "/usr/share/fonts/truetype/",
+            "/usr/share/fonts/TTF/",
+        ]
+
+        for font_name, font_file in hebrew_fonts:
+            try:
+                # Try different font file extensions
+                font_extensions = [".ttf", ".otf", ""]
+
+                for ext in font_extensions:
+                    full_font_file = (
+                        font_file
+                        if font_file.endswith((".ttf", ".otf"))
+                        else f"{font_file}{ext}"
+                    )
+
+                    for font_path in font_paths:
+                        full_path = Path(font_path) / full_font_file
+                        if full_path.exists():
+                            try:
+                                pdfmetrics.registerFont(
+                                    TTFont(font_name, str(full_path))
+                                )
+                                logger.info(
+                                    f"Registered Hebrew font: {font_name} from {full_path}"
+                                )
+                                return font_name
+                            except Exception as font_error:
+                                logger.debug(
+                                    f"Failed to register {font_name}: {font_error}"
+                                )
+                                continue
+
+            except Exception as e:
+                logger.debug(f"Could not register font {font_name}: {e}")
+                continue
+
+        # If no Hebrew font found, use default
+        logger.warning("No Hebrew font found, using default font")
+        return "Helvetica"
+
+    except Exception as e:
+        logger.error(f"Error configuring Hebrew fonts: {e}")
+        return "Helvetica"
+
+
+def fix_hebrew_text_direction(text: str) -> str:
+    """
+    Fix Hebrew text direction and encoding for proper PDF display.
+
+    Args:
+        text: Input text that may contain Hebrew characters
+
+    Returns:
+        Text with proper Hebrew direction and encoding
+    """
+    try:
+        # Ensure text is properly encoded
+        if isinstance(text, bytes):
+            text = text.decode("utf-8", errors="ignore")
+
+        # Check if text contains Hebrew characters
+        hebrew_chars = any("\u0590" <= char <= "\u05ff" for char in text)
+
+        if hebrew_chars:
+            # For Hebrew text, clean up any problematic direction markers
+            text = text.strip()
+
+            # Remove any existing direction markers that might cause issues
+            text = text.replace("\u202e", "")  # RTL override
+            text = text.replace("\u202d", "")  # LTR override
+            text = text.replace("\u200e", "")  # LTR mark
+            text = text.replace("\u200f", "")  # RTL mark
+
+            # TEMPORARY FIX: Try reversing Hebrew text to see if that fixes the display
+            # This is a test to see if the issue is with text direction
+            print(f"DEBUG: Original Hebrew text: {repr(text)}")
+
+            # Simple approach: reverse the entire text if it contains Hebrew
+            text = text[::-1]
+
+            print(f"DEBUG: Reversed Hebrew text: {repr(text)}")
+
+        return text
+
+    except Exception as e:
+        logger.warning(f"Error fixing Hebrew text direction: {e}")
+        return text
+
+
+def is_hebrew_text(text: str) -> bool:
+    """
+    Check if text contains Hebrew characters.
+
+    Args:
+        text: Text to check
+
+    Returns:
+        True if text contains Hebrew characters, False otherwise
+    """
+    try:
+        return any("\u0590" <= char <= "\u05ff" for char in text)
+    except Exception:
+        return False
 
 
 # Performance monitoring decorator
@@ -1213,7 +1345,7 @@ class ProductDataProcessor:
 
 
 class DataFileManager:
-    """Handles saving extracted data to files."""
+    """Handles saving extracted data to PDF files."""
 
     @staticmethod
     def save_extracted_data(
@@ -1222,7 +1354,7 @@ class DataFileManager:
         identification_number: str,
     ) -> bool:
         """
-        Save extracted data to a text file.
+        Save extracted data to a PDF file with Hebrew text support.
 
         Args:
             extracted_data: List of data strings to save
@@ -1233,19 +1365,151 @@ class DataFileManager:
             True if successful, False otherwise
         """
         timestamp = int(time.time())
-        filename = f"saver_products_data_{identification_number}_{timestamp}.txt"
+        filename = f"saver_products_data_{identification_number}_{timestamp}.pdf"
         file_path = identification_folder / filename
 
         try:
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write("\n".join(extracted_data))
+            # Configure Hebrew fonts
+            hebrew_font = configure_hebrew_fonts()
+            print(f"DEBUG: Using font: {hebrew_font}")
 
-            print(f"✅ SaverMyProducts data saved to: {file_path}")
+            # Create PDF document
+            doc = SimpleDocTemplate(
+                str(file_path),
+                pagesize=A4,
+                rightMargin=72,
+                leftMargin=72,
+                topMargin=72,
+                bottomMargin=18,
+            )
+
+            # Define styles for Hebrew text
+            styles = getSampleStyleSheet()
+
+            # Title style
+            title_style = ParagraphStyle(
+                "HebrewTitle",
+                parent=styles["Heading1"],
+                fontName=hebrew_font,
+                fontSize=16,
+                alignment=TA_CENTER,
+                spaceAfter=20,
+            )
+
+            # Header style - try left alignment for Hebrew text
+            header_style = ParagraphStyle(
+                "HebrewHeader",
+                parent=styles["Heading2"],
+                fontName=hebrew_font,
+                fontSize=14,
+                alignment=TA_LEFT,  # Try left alignment instead of right
+                spaceAfter=12,
+                spaceBefore=12,
+            )
+
+            # Normal text style - try left alignment for Hebrew text
+            normal_style = ParagraphStyle(
+                "HebrewNormal",
+                parent=styles["Normal"],
+                fontName=hebrew_font,
+                fontSize=10,
+                alignment=TA_LEFT,  # Try left alignment instead of right
+                spaceAfter=6,
+            )
+
+            # Build PDF content
+            story = []
+
+            # Add title
+            title = f"דוח מוצרי חיסכון - {identification_number}"
+            print(f"DEBUG: Original title: {repr(title)}")
+            title = fix_hebrew_text_direction(title)
+            print(f"DEBUG: Fixed title: {repr(title)}")
+            story.append(Paragraph(title, title_style))
+            story.append(Spacer(1, 20))
+
+            # # Add extraction date
+            # date_text = f"תאריך חילוץ: {time.strftime('%d/%m/%Y %H:%M:%S')}"
+            # print(f"DEBUG: Original date: {repr(date_text)}")
+            # date_text = fix_hebrew_text_direction(date_text)
+            # print(f"DEBUG: Fixed date: {repr(date_text)}")
+            # story.append(Paragraph(date_text, normal_style))
+            # story.append(Spacer(1, 20))
+
+            # Process and add data
+            for line in extracted_data:
+                if not line.strip():
+                    story.append(Spacer(1, 6))
+                    continue
+
+                # Check if line is a header (starts with *)
+                if line.startswith("*") and line.endswith("*"):
+                    # Remove asterisks and format as header
+                    header_text = line[1:-1]
+                    header_text = fix_hebrew_text_direction(header_text)
+                    story.append(Paragraph(header_text, header_style))
+                elif line.startswith("="):
+                    # Skip separator lines
+                    continue
+                else:
+                    # Regular text line
+                    # Fix Hebrew text direction first
+                    fixed_line = fix_hebrew_text_direction(line)
+                    # Escape special characters for PDF
+                    escaped_line = DataFileManager._escape_text_for_pdf(fixed_line)
+                    story.append(Paragraph(escaped_line, normal_style))
+
+            # Build PDF
+            doc.build(story)
+
+            print(f"✅ SaverMyProducts data saved to PDF: {file_path}")
             return True
 
         except Exception as save_error:
-            print(f"❌ Error saving data to file: {save_error}")
+            print(f"❌ Error saving data to PDF file: {save_error}")
             return False
+
+    @staticmethod
+    def _escape_text_for_pdf(text: str) -> str:
+        """
+        Escape special characters for PDF generation while preserving Hebrew text.
+
+        Args:
+            text: Text to escape
+
+        Returns:
+            Escaped text safe for PDF
+        """
+        try:
+            # Ensure text is properly encoded as UTF-8
+            if isinstance(text, bytes):
+                text = text.decode("utf-8", errors="ignore")
+
+            # Replace special characters that might cause issues in PDF
+            replacements = {
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                '"': "&quot;",
+                "'": "&#x27;",
+            }
+
+            for char, replacement in replacements.items():
+                text = text.replace(char, replacement)
+
+            # Ensure Hebrew text is properly handled
+            if is_hebrew_text(text):
+                # Remove any problematic characters that might interfere with Hebrew rendering
+                text = text.replace("\u200e", "")  # Left-to-right mark
+                text = text.replace("\u200f", "")  # Right-to-left mark
+                text = text.replace("\u202e", "")  # RTL override
+                text = text.replace("\u202d", "")  # LTR override
+
+            return text
+
+        except Exception as e:
+            logger.warning(f"Error escaping text for PDF: {e}")
+            return str(text)
 
 
 class SaverProductsExtractor:

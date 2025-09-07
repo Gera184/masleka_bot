@@ -1,22 +1,2 @@
-# Masleka Bot - Chromium Browser Opener
-# Python project dependencies
-
-# Core dependencies for web automation
-selenium==4.15.0          # For web browser automation
-webdriver-manager==4.0.1  # For automatic webdriver management
-
-# This project uses standard library modules:
-# - webbrowser: For browser operations
-# - sys: For system information
-# - os: For file system operations
-# - subprocess: For launching processes
-# - argparse: For command-line interface
-# - tkinter: For GUI dialogs (built-in)
-
-# Optional dependencies for future enhancements:
-# requests==2.31.0          # For HTTP requests
-# beautifulsoup4==4.12.2    # For web scraping
-# click==8.1.7              # For advanced CLI features
-# colorama==0.4.6           # For colored terminal output
-pyautogui==0.9.54          # For system-level dialog handling
-
+selenium>=4.0.0
+pdfkit>=1.0.0
