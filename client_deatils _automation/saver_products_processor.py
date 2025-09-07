@@ -85,6 +85,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.colors import black, red, blue, green
 
 # Configure logging
 logging.basicConfig(
@@ -250,6 +251,98 @@ def is_hebrew_text(text: str) -> bool:
         return any("\u0590" <= char <= "\u05ff" for char in text)
     except Exception:
         return False
+
+
+def get_text_color_for_line(line: str) -> str:
+    """
+    Determine the color for a text line based on its content.
+
+    Args:
+        line: Text line to analyze
+
+    Returns:
+        Color name for the text
+    """
+    try:
+        print(f"DEBUG: Analyzing line: '{line}'")
+
+        # Check for specific Hebrew patterns that should be colored
+        hebrew_patterns = {
+            "שם חברה מנהלת": blue,  # Company name - blue
+            "סך הכל חסכון": green,  # Total savings - green
+            "סטטוס": black,  # Status - black (default)
+        }
+
+        print(
+            f"DEBUG: Available colors - blue: {blue}, green: {green}, red: {red}, black: {black}"
+        )
+
+        # Check for patterns that should be red if not "לא"
+        red_condition_patterns = [
+            "האם הוטל עיקול",
+            "האם הוטל שיעבוד",
+            "האם קיימת הלוואה",
+            "עיקול",
+            "שיעבוד",
+            "הלוואה",
+            "האם הוטל עיקול/ שעבוד",  # Exact pattern from your text
+            "האם הוטל עיקול/ שעבוד או יש הלוואה",  # Full pattern
+        ]
+
+        # Check for specific product types that should be red
+        red_product_types = [
+            "פנסיה ותיקה מקיפה",  # Old Comprehensive Pension
+        ]
+
+        # Check for specific product types that should be red
+        for product_type in red_product_types:
+            if product_type in line:
+                print(f"DEBUG: Found red product type '{product_type}' - using red")
+                return red
+
+        # Check if line contains any of the red condition patterns
+        for pattern in red_condition_patterns:
+            if pattern in line:
+                # If the line contains "לא" (No), keep it black
+                if "לא" in line:
+                    print(
+                        f"DEBUG: Found red pattern '{pattern}' but answer is 'לא' - using black"
+                    )
+                    return black
+                else:
+                    # If it's not "לא", make it red
+                    print(
+                        f"DEBUG: Found red pattern '{pattern}' with non-'לא' answer - using red"
+                    )
+                    return red
+
+        # Check for other Hebrew patterns (more flexible matching)
+        for pattern, color in hebrew_patterns.items():
+            if pattern in line:
+                print(f"DEBUG: Found pattern '{pattern}' - using {color}")
+                return color
+
+        # Additional flexible pattern matching
+        if "סטטוס" in line:
+            print("DEBUG: Found 'סטטוס' pattern - using black")
+            return black
+        elif "סך הכל חסכון" in line or "סהכ חסכון" in line:
+            print("DEBUG: Found savings pattern - using green")
+            return green
+        elif "שם חברה מנהלת" in line:
+            print("DEBUG: Found company name pattern - using blue")
+            return blue
+        elif "פנסיה ותיקה מקיפה" in line:
+            print("DEBUG: Found old comprehensive pension pattern - using red")
+            return red
+
+        # Default color
+        print(f"DEBUG: No pattern found for line: {line[:50]}... - using black")
+        return black
+
+    except Exception as e:
+        logger.warning(f"Error determining text color: {e}")
+        return black
 
 
 # Performance monitoring decorator
@@ -1415,6 +1508,7 @@ class DataFileManager:
                 fontSize=10,
                 alignment=TA_LEFT,  # Try left alignment instead of right
                 spaceAfter=6,
+                textColor=black,  # Default color
             )
 
             # Build PDF content
@@ -1446,18 +1540,42 @@ class DataFileManager:
                 if line.startswith("*") and line.endswith("*"):
                     # Remove asterisks and format as header
                     header_text = line[1:-1]
+
+                    # Determine color for header BEFORE fixing text direction
+                    header_color = get_text_color_for_line(header_text)
+
+                    # Fix Hebrew text direction
                     header_text = fix_hebrew_text_direction(header_text)
-                    story.append(Paragraph(header_text, header_style))
+
+                    # Create dynamic header style with color
+                    dynamic_header_style = ParagraphStyle(
+                        "DynamicHeaderStyle",
+                        parent=header_style,
+                        textColor=header_color,
+                    )
+
+                    story.append(Paragraph(header_text, dynamic_header_style))
                 elif line.startswith("="):
                     # Skip separator lines
                     continue
                 else:
                     # Regular text line
-                    # Fix Hebrew text direction first
+                    # Determine color BEFORE fixing text direction (so patterns match)
+                    text_color = get_text_color_for_line(line)
+
+                    # Fix Hebrew text direction
                     fixed_line = fix_hebrew_text_direction(line)
                     # Escape special characters for PDF
                     escaped_line = DataFileManager._escape_text_for_pdf(fixed_line)
-                    story.append(Paragraph(escaped_line, normal_style))
+
+                    # Create dynamic style with the determined color
+                    dynamic_style = ParagraphStyle(
+                        "DynamicStyle",
+                        parent=normal_style,
+                        textColor=text_color,
+                    )
+
+                    story.append(Paragraph(escaped_line, dynamic_style))
 
             # Build PDF
             doc.build(story)
