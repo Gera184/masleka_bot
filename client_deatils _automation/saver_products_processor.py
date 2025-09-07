@@ -875,6 +875,108 @@ class ProductDataProcessor:
         return policy_data
 
     @staticmethod
+    def _wait_for_table_data_loaded(driver: WebDriver, timeout: int = 30) -> bool:
+        """
+        Wait for table data to be fully loaded by checking for various indicators.
+
+        Args:
+            driver: WebDriver instance
+            timeout: Maximum time to wait in seconds
+
+        Returns:
+            True if data is loaded, False if timeout
+        """
+        try:
+            print("⏳ Waiting for table data to be fully loaded...")
+
+            wait = WebDriverWait(driver, timeout)
+
+            # Wait for any loading indicators to disappear
+            try:
+                # Check for common loading indicators and wait for them to disappear
+                loading_selectors = [
+                    "div[class*='loading']",
+                    "div[class*='spinner']",
+                    "div[class*='loader']",
+                    "img[src*='loading']",
+                    "img[src*='spinner']",
+                    ".k-loading-mask",
+                    ".loading-overlay",
+                ]
+
+                for selector in loading_selectors:
+                    try:
+                        loading_elements = driver.find_elements(
+                            By.CSS_SELECTOR, selector
+                        )
+                        if loading_elements:
+                            print(f"    🔍 Found loading indicator: {selector}")
+                            # Wait for loading elements to be hidden or removed
+                            wait.until(
+                                EC.invisibility_of_element_located(
+                                    (By.CSS_SELECTOR, selector)
+                                )
+                            )
+                            print(f"    ✅ Loading indicator disappeared: {selector}")
+                    except TimeoutException:
+                        # Loading indicator might not exist, continue
+                        pass
+                    except Exception:
+                        # Other exceptions, continue
+                        pass
+
+            except Exception as e:
+                print(f"    ⚠️ Error checking loading indicators: {e}")
+
+            # Wait for table content to be present and populated
+            try:
+                # Wait for at least one data row to be present
+                wait.until(
+                    lambda driver: len(
+                        driver.find_elements(By.CSS_SELECTOR, "tbody tr, div.row-fluid")
+                    )
+                    > 0
+                )
+                print("    ✅ Found data rows")
+
+                # Additional wait to ensure data is fully rendered
+                time.sleep(2)
+
+                # Check if rows have actual content (not just empty cells)
+                rows = driver.find_elements(By.CSS_SELECTOR, "tbody tr, div.row-fluid")
+                if rows:
+                    # Wait for at least one row to have meaningful content
+                    wait.until(
+                        lambda driver: any(
+                            row.find_elements(By.CSS_SELECTOR, "td, div")
+                            and any(
+                                cell.text.strip()
+                                for cell in row.find_elements(
+                                    By.CSS_SELECTOR, "td, div"
+                                )
+                            )
+                            for row in driver.find_elements(
+                                By.CSS_SELECTOR, "tbody tr, div.row-fluid"
+                            )
+                        )
+                    )
+                    print("    ✅ Data rows contain content")
+
+            except TimeoutException:
+                print("    ⚠️ Timeout waiting for table data to load")
+                return False
+            except Exception as e:
+                print(f"    ⚠️ Error waiting for table data: {e}")
+                return False
+
+            print("    ✅ Table data is fully loaded")
+            return True
+
+        except Exception as e:
+            print(f"    ⚠️ Error in _wait_for_table_data_loaded: {e}")
+            return False
+
+    @staticmethod
     def _click_specific_tabs(driver: WebDriver) -> List[str]:
         """
         Click on specific tabs: שעבודים ועיקולים (Liens and Foreclosures) and הלוואות (Loans).
@@ -902,12 +1004,20 @@ class ProductDataProcessor:
             if liens_tab:
                 print("✅ Found 'שעבודים ועיקולים' tab, clicking...")
                 driver.execute_script("arguments[0].click();", liens_tab)
-                time.sleep(3)
                 print("✅ Clicked on 'שעבודים ועיקולים' tab")
 
-                # Extract data from שעבודים ועיקולים tab
-                liens_data = ProductDataProcessor._extract_liens_data(driver)
-                extracted_data.extend(liens_data)
+                # Wait for table data to be fully loaded
+                if ProductDataProcessor._wait_for_table_data_loaded(driver):
+                    print("✅ Table data loaded for 'שעבודים ועיקולים' tab")
+                    # Extract data from שעבודים ועיקולים tab
+                    liens_data = ProductDataProcessor._extract_liens_data(driver)
+                    extracted_data.extend(liens_data)
+                else:
+                    print(
+                        "⚠️ Timeout waiting for 'שעבודים ועיקולים' table data, proceeding anyway..."
+                    )
+                    liens_data = ProductDataProcessor._extract_liens_data(driver)
+                    extracted_data.extend(liens_data)
             else:
                 print("❌ 'שעבודים ועיקולים' tab not found")
 
@@ -917,12 +1027,20 @@ class ProductDataProcessor:
             if loans_tab:
                 print("✅ Found 'הלוואות' tab, clicking...")
                 driver.execute_script("arguments[0].click();", loans_tab)
-                time.sleep(3)
                 print("✅ Clicked on 'הלוואות' tab")
 
-                # Extract data from הלוואות tab
-                loans_data = ProductDataProcessor._extract_loans_data(driver)
-                extracted_data.extend(loans_data)
+                # Wait for table data to be fully loaded
+                if ProductDataProcessor._wait_for_table_data_loaded(driver):
+                    print("✅ Table data loaded for 'הלוואות' tab")
+                    # Extract data from הלוואות tab
+                    loans_data = ProductDataProcessor._extract_loans_data(driver)
+                    extracted_data.extend(loans_data)
+                else:
+                    print(
+                        "⚠️ Timeout waiting for 'הלוואות' table data, proceeding anyway..."
+                    )
+                    loans_data = ProductDataProcessor._extract_loans_data(driver)
+                    extracted_data.extend(loans_data)
             else:
                 print("❌ 'הלוואות' tab not found")
 
@@ -947,8 +1065,11 @@ class ProductDataProcessor:
         try:
             print("🔍 Extracting data from 'שעבודים ועיקולים' tab...")
 
-            # Wait for content to load
-            time.sleep(2)
+            # Wait for table data to be fully loaded before extracting
+            if not ProductDataProcessor._wait_for_table_data_loaded(driver, timeout=15):
+                print(
+                    "⚠️ Timeout waiting for liens table data, proceeding with extraction..."
+                )
 
             # Look for the PolicyConfiscationContent div
             liens_content = driver.find_element(
@@ -1011,8 +1132,11 @@ class ProductDataProcessor:
         try:
             print("🔍 Extracting data from 'הלוואות' tab...")
 
-            # Wait for content to load
-            time.sleep(2)
+            # Wait for table data to be fully loaded before extracting
+            if not ProductDataProcessor._wait_for_table_data_loaded(driver, timeout=15):
+                print(
+                    "⚠️ Timeout waiting for loans table data, proceeding with extraction..."
+                )
 
             # Look for the PolicyLoanGrid table
             loans_table = driver.find_element(By.CSS_SELECTOR, SELECTORS["loans_table"])
