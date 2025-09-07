@@ -656,8 +656,18 @@ class ProductDataProcessor:
                             driver.execute_script("arguments[0].click();", element)
                             print("✅ Clicked on 'פירוט מוצרים' tab")
 
-                            # Wait for any page changes
-                            time.sleep(2)
+                            # Wait for policy links to be available after tab click
+                            try:
+                                wait = WebDriverWait(driver, 60)
+                                wait.until(
+                                    EC.presence_of_element_located(
+                                        (By.CSS_SELECTOR, SELECTORS["policy_links"])
+                                    )
+                                )
+                                print("✅ Policy links are now available")
+                            except TimeoutException:
+                                print("⚠️ Timeout waiting for policy links, but continuing...")
+                            
                             return True
 
                 except Exception as selector_error:
