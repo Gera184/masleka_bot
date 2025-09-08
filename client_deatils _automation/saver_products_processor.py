@@ -1490,10 +1490,12 @@ class DataFileManager:
                 "HebrewHeader",
                 parent=styles["Heading2"],
                 fontName=hebrew_font,
-                fontSize=14,
+                fontSize=18,  # Increased from 14 to 18
                 alignment=TA_RIGHT,  # Try left alignment instead of right
                 spaceAfter=12,
                 spaceBefore=12,
+                fontWeight='bolder',  # Added bold weight
+                leading=12,  # Line height for better readability
             )
 
             # Normal text style - try left alignment for Hebrew text
@@ -1505,6 +1507,7 @@ class DataFileManager:
                 alignment=TA_RIGHT,  # Try left alignment instead of right
                 spaceAfter=6,
                 textColor=black,  # Default color
+                leading=12,  # Line height for better readability
             )
 
             # Build PDF content
@@ -1532,6 +1535,9 @@ class DataFileManager:
                         "DynamicHeaderStyle",
                         parent=header_style,
                         textColor=header_color,
+                        fontWeight='bolder',
+                        fontSize=20,  # Increased from 16 to 20 for even bigger product names
+                        leading=12,  # Line height for product names
                     )
 
                     story.append(Paragraph(header_text, dynamic_header_style))
@@ -1553,6 +1559,7 @@ class DataFileManager:
                         "DynamicStyle",
                         parent=normal_style,
                         textColor=text_color,
+                        leading=12,  # Line height for regular text
                     )
 
                     story.append(Paragraph(escaped_line, dynamic_style))
