@@ -84,7 +84,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.lib.colors import black, red, blue, green
 
 # Configure logging
@@ -215,19 +215,25 @@ def fix_hebrew_text_direction(text: str) -> str:
             # For Hebrew text, clean up any problematic direction markers
             text = text.strip()
 
-            # Remove any existing direction markers that might cause issues
-            text = text.replace("\u202e", "")  # RTL override
-            text = text.replace("\u202d", "")  # LTR override
-            text = text.replace("\u200e", "")  # LTR mark
-            text = text.replace("\u200f", "")  # RTL mark
+            # Special handling for specific keys where only the key should be reversed, not the value
+            special_keys = ["סהכ חסכון", "מספר פוליסה"]
 
-            # TEMPORARY FIX: Try reversing Hebrew text to see if that fixes the display
-            # This is a test to see if the issue is with text direction
-            print(f"DEBUG: Original Hebrew text: {repr(text)}")
+            for special_key in special_keys:
+                if text.startswith(special_key + ":"):
+                    # Split into key and value
+                    key_part = special_key + ":"
+                    value_part = text[len(key_part) :].strip()
 
-            # Simple approach: reverse the entire text if it contains Hebrew
+                    # Only reverse the key part, keep value unchanged
+                    reversed_key = key_part[::-1]
+                    result = value_part + " " + reversed_key
+
+                    print(f"DEBUG: Special key handling - Original: {repr(text)}")
+                    print(f"DEBUG: Special key handling - Result: {repr(result)}")
+                    return result
+
+            # For all other Hebrew text, reverse the entire text
             text = text[::-1]
-
             print(f"DEBUG: Reversed Hebrew text: {repr(text)}")
 
         return text
@@ -787,7 +793,7 @@ class ProductDataProcessor:
             return new_window
 
         except Exception as e:
-            print(f"    ❌ Error opening main page in new tab: {e}")
+            print(f"❌ Error opening main page in new tab: {e}")
             # Try to switch back to original window if there was an error
             try:
                 if "original_window" in locals():
@@ -1097,7 +1103,7 @@ class ProductDataProcessor:
                         pass
 
             except Exception as e:
-                print(f"    ⚠️ Error checking loading indicators: {e}")
+                print(f"⚠️ Error checking loading indicators: {e}")
 
             # Wait for table content to be present and populated
             try:
@@ -1275,7 +1281,7 @@ class ProductDataProcessor:
                                 print(f"    ✅ Extracted: {label_text}: {value_text}")
 
                     except Exception as row_error:
-                        print(f"    ⚠️ Error processing row: {row_error}")
+                        print(f"⚠️ Error processing row: {row_error}")
                         continue
 
                 print(f"📋 Total liens data points extracted: {len(extracted_data)}")
@@ -1284,7 +1290,7 @@ class ProductDataProcessor:
 
         except Exception as e:
             print(f"⚠️ Error extracting liens data: {e}")
-            extracted_data.append("    ERROR - Failed to extract data")
+            extracted_data.append("ERROR - Failed to extract data")
 
         return extracted_data
 
@@ -1305,7 +1311,7 @@ class ProductDataProcessor:
             print("🔍 Extracting data from 'הלוואות' tab...")
 
             # Wait for table data to be fully loaded before extracting
-            if not ProductDataProcessor._wait_for_table_data_loaded(driver, timeout=15):
+            if not ProductDataProcessor._wait_for_table_data_loaded(driver, timeout=60):
                 print(
                     "⚠️ Timeout waiting for loans table data, proceeding with extraction..."
                 )
@@ -1329,11 +1335,11 @@ class ProductDataProcessor:
                     if header_text:
                         headers.append(header_text)
 
-                print(f"    📊 Table headers: {headers}")
+                print(f"📊 Table headers: {headers}")
 
                 # Extract table rows data
                 rows = loans_table.find_elements(By.CSS_SELECTOR, "tbody tr")
-                print(f"    📊 Found {len(rows)} loan rows")
+                print(f"📊 Found {len(rows)} loan rows")
 
                 for row_index, row in enumerate(rows):
                     try:
@@ -1346,9 +1352,7 @@ class ProductDataProcessor:
                                 row_data.append(f"{headers[cell_index]}: {cell_text}")
 
                         if row_data:
-                            extracted_data.extend(
-                                [f"        {item}" for item in row_data]
-                            )
+                            extracted_data.extend([f"{item}" for item in row_data])
                             extracted_data.append("")  # Empty line for separation
 
                     except Exception as row_error:
@@ -1383,7 +1387,7 @@ class ProductDataProcessor:
             if tabs_data:
                 print("📋 Extracted tabs data:")
                 for data_item in tabs_data:
-                    print(f"    {data_item}")
+                    print(f"{data_item}")
             else:
                 print("📋 No tabs data extracted")
 
@@ -1481,23 +1485,13 @@ class DataFileManager:
             # Define styles for Hebrew text
             styles = getSampleStyleSheet()
 
-            # # Title style
-            # title_style = ParagraphStyle(
-            #     "HebrewTitle",
-            #     parent=styles["Heading1"],
-            #     fontName=hebrew_font,
-            #     fontSize=16,
-            #     alignment=TA_CENTER,
-            #     spaceAfter=20,
-            # )
-
             # Header style - try left alignment for Hebrew text
             header_style = ParagraphStyle(
                 "HebrewHeader",
                 parent=styles["Heading2"],
                 fontName=hebrew_font,
                 fontSize=14,
-                alignment=TA_LEFT,  # Try left alignment instead of right
+                alignment=TA_RIGHT,  # Try left alignment instead of right
                 spaceAfter=12,
                 spaceBefore=12,
             )
@@ -1508,29 +1502,13 @@ class DataFileManager:
                 parent=styles["Normal"],
                 fontName=hebrew_font,
                 fontSize=10,
-                alignment=TA_LEFT,  # Try left alignment instead of right
+                alignment=TA_RIGHT,  # Try left alignment instead of right
                 spaceAfter=6,
                 textColor=black,  # Default color
             )
 
             # Build PDF content
             story = []
-
-            # # Add title
-            # title = f"דוח מוצרי חיסכון - {identification_number}"
-            # print(f"DEBUG: Original title: {repr(title)}")
-            # title = fix_hebrew_text_direction(title)
-            # print(f"DEBUG: Fixed title: {repr(title)}")
-            # story.append(Paragraph(title, title_style))
-            # story.append(Spacer(1, 20))
-
-            # # Add extraction date
-            # date_text = f"תאריך חילוץ: {time.strftime('%d/%m/%Y %H:%M:%S')}"
-            # print(f"DEBUG: Original date: {repr(date_text)}")
-            # date_text = fix_hebrew_text_direction(date_text)
-            # print(f"DEBUG: Fixed date: {repr(date_text)}")
-            # story.append(Paragraph(date_text, normal_style))
-            # story.append(Spacer(1, 20))
 
             # Process and add data
             for line in extracted_data:
