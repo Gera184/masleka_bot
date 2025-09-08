@@ -283,16 +283,11 @@ def get_text_color_for_line(line: str) -> str:
             f"DEBUG: Available colors - blue: {blue}, green: {green}, red: {red}, black: {black}"
         )
 
-        # Check for patterns that should be red if not "לא"
+        # Check for patterns that should be red if answer is "כן" (Yes)
         red_condition_patterns = [
-            "האם הוטל עיקול",
-            "האם הוטל שיעבוד",
+            "האם הוטל שיעבוד על הפוליסה/חשבון",
+            "האם הוטל עיקול על הפוליסה/חשבון",
             "האם קיימת הלוואה",
-            "עיקול",
-            "שיעבוד",
-            "הלוואה",
-            "האם הוטל עיקול/ שעבוד",  # Exact pattern from your text
-            "האם הוטל עיקול/ שעבוד או יש הלוואה",  # Full pattern
         ]
 
         # Check for specific product types that should be red
@@ -309,18 +304,18 @@ def get_text_color_for_line(line: str) -> str:
         # Check if line contains any of the red condition patterns
         for pattern in red_condition_patterns:
             if pattern in line:
-                # If the line contains "לא" (No), keep it black
-                if "לא" in line:
+                # If the line contains "כן" (Yes), make it red
+                if "כן" in line:
                     print(
-                        f"DEBUG: Found red pattern '{pattern}' but answer is 'לא' - using black"
-                    )
-                    return black
-                else:
-                    # If it's not "לא", make it red
-                    print(
-                        f"DEBUG: Found red pattern '{pattern}' with non-'לא' answer - using red"
+                        f"DEBUG: Found red pattern '{pattern}' with answer 'כן' - using red"
                     )
                     return red
+                else:
+                    # If it's not "כן", keep it black
+                    print(
+                        f"DEBUG: Found red pattern '{pattern}' but answer is not 'כן' - using black"
+                    )
+                    return black
 
         # Check for other Hebrew patterns (more flexible matching)
         for pattern, color in hebrew_patterns.items():
@@ -715,6 +710,7 @@ class ProductDataProcessor:
 
             # Add product header
             extracted_data.append(f"*{product_name}*")
+            extracted_data.append(" ")  # Add space after product name
 
             # Process each detail box individually with its policy data
             detail_boxes_data = (
@@ -1017,7 +1013,6 @@ class ProductDataProcessor:
                         policy_link.click()
 
                         # Add policy header
-                        policy_data.append("")
                         policy_data.append(f"מספר פוליסה: {policy_number}")
 
                         # Click on specific tabs and extract data
@@ -1052,7 +1047,7 @@ class ProductDataProcessor:
         return policy_data
 
     @staticmethod
-    def _wait_for_table_data_loaded(driver: WebDriver, timeout: int = 30) -> bool:
+    def _wait_for_table_data_loaded(driver: WebDriver, timeout: int = 60) -> bool:
         """
         Wait for table data to be fully loaded by checking for various indicators.
 
@@ -1243,7 +1238,7 @@ class ProductDataProcessor:
             print("🔍 Extracting data from 'שעבודים ועיקולים' tab...")
 
             # Wait for table data to be fully loaded before extracting
-            if not ProductDataProcessor._wait_for_table_data_loaded(driver, timeout=15):
+            if not ProductDataProcessor._wait_for_table_data_loaded(driver, timeout=60):
                 print(
                     "⚠️ Timeout waiting for liens table data, proceeding with extraction..."
                 )
