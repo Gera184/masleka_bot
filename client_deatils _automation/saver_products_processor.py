@@ -1250,7 +1250,8 @@ class ProductDataProcessor:
                 print("✅ Found liens content section")
 
                 # Add section header
-                extracted_data.append("שעבודים ועיקולים:")
+                extracted_data.append("")
+                extracted_data.append("שעבודים ועיקולים")
 
                 # Extract all row-fluid divs
                 rows = liens_content.find_elements(By.CSS_SELECTOR, "div.row-fluid")
@@ -1315,7 +1316,8 @@ class ProductDataProcessor:
                 print("✅ Found loans table")
 
                 # Add section header
-                extracted_data.append("הלוואות:")
+                extracted_data.append("")
+                extracted_data.append("הלוואות")
 
                 # Extract table headers
                 headers = []
@@ -1479,15 +1481,15 @@ class DataFileManager:
             # Define styles for Hebrew text
             styles = getSampleStyleSheet()
 
-            # Title style
-            title_style = ParagraphStyle(
-                "HebrewTitle",
-                parent=styles["Heading1"],
-                fontName=hebrew_font,
-                fontSize=16,
-                alignment=TA_CENTER,
-                spaceAfter=20,
-            )
+            # # Title style
+            # title_style = ParagraphStyle(
+            #     "HebrewTitle",
+            #     parent=styles["Heading1"],
+            #     fontName=hebrew_font,
+            #     fontSize=16,
+            #     alignment=TA_CENTER,
+            #     spaceAfter=20,
+            # )
 
             # Header style - try left alignment for Hebrew text
             header_style = ParagraphStyle(
@@ -1514,13 +1516,13 @@ class DataFileManager:
             # Build PDF content
             story = []
 
-            # Add title
-            title = f"דוח מוצרי חיסכון - {identification_number}"
-            print(f"DEBUG: Original title: {repr(title)}")
-            title = fix_hebrew_text_direction(title)
-            print(f"DEBUG: Fixed title: {repr(title)}")
-            story.append(Paragraph(title, title_style))
-            story.append(Spacer(1, 20))
+            # # Add title
+            # title = f"דוח מוצרי חיסכון - {identification_number}"
+            # print(f"DEBUG: Original title: {repr(title)}")
+            # title = fix_hebrew_text_direction(title)
+            # print(f"DEBUG: Fixed title: {repr(title)}")
+            # story.append(Paragraph(title, title_style))
+            # story.append(Spacer(1, 20))
 
             # # Add extraction date
             # date_text = f"תאריך חילוץ: {time.strftime('%d/%m/%Y %H:%M:%S')}"
