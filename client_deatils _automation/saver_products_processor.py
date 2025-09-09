@@ -216,7 +216,7 @@ def fix_hebrew_text_direction(text: str) -> str:
             text = text.strip()
 
             # Special handling for specific keys where only the key should be reversed, not the value
-            special_keys = ["סהכ חסכון", "מספר פוליסה"]
+            special_keys = ["סהכ חסכון", "מספר פוליסה", "יתרה לתשלום"]
 
             for special_key in special_keys:
                 if text.startswith(special_key + ":"):
@@ -1348,7 +1348,8 @@ class ProductDataProcessor:
                                     row_data.append(f"{headers[cell_index]}: {cell_text}")
 
                                 if headers[cell_index] == "יתרה לתשלום (₪)":
-                                    row_data.append(f"{headers[cell_index]}: {cell_text}")
+                                    clean_header = headers[cell_index].replace(" (₪)", "")
+                                    row_data.append(f"{clean_header}: {cell_text}")
 
                         if row_data:
                             extracted_data.extend([f"{item}" for item in row_data])
