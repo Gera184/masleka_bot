@@ -1270,7 +1270,7 @@ class ProductDataProcessor:
                         if label_elem and value_elem:
                             label_text = label_elem.text.strip()
                             value_text = value_elem.text.strip()
-
+                            
                             if label_text and value_text:
                                 extracted_data.append(f"    {label_text}: {value_text}")
                                 print(f"    ✅ Extracted: {label_text}: {value_text}")
@@ -1344,7 +1344,11 @@ class ProductDataProcessor:
                         for cell_index, cell in enumerate(cells):
                             cell_text = cell.text.strip()
                             if cell_text and cell_index < len(headers):
-                                row_data.append(f"{headers[cell_index]}: {cell_text}")
+                                if headers[cell_index] == "האם קיימת הלוואה":
+                                    row_data.append(f"{headers[cell_index]}: {cell_text}")
+
+                                if headers[cell_index] == "יתרה לתשלום (₪)":
+                                    row_data.append(f"{headers[cell_index]}: {cell_text}")
 
                         if row_data:
                             extracted_data.extend([f"{item}" for item in row_data])
@@ -1489,7 +1493,7 @@ class DataFileManager:
                 alignment=TA_RIGHT,  # Try left alignment instead of right
                 spaceAfter=12,
                 spaceBefore=12,
-                fontWeight='bolder',  # Added bold weight
+                fontWeight="bolder",  # Added bold weight
                 leading=12,  # Line height for better readability
             )
 
@@ -1530,7 +1534,7 @@ class DataFileManager:
                         "DynamicHeaderStyle",
                         parent=header_style,
                         textColor=header_color,
-                        fontWeight='bolder',
+                        fontWeight="bolder",
                         fontSize=20,  # Increased from 16 to 20 for even bigger product names
                         leading=12,  # Line height for product names
                     )
