@@ -191,14 +191,25 @@ class PDFManager:
     def move_pdf_to_folder(
         pdf_file: Path, target_folder: Path, identification_number: str
     ) -> Optional[Path]:
-        """Move a downloaded PDF to its specific folder."""
+        """Move a downloaded PDF to its specific folder, adding keywords to the filename if found."""
         if not pdf_file or not pdf_file.exists():
             return None
 
         try:
+            # Check for keywords in the original filename
+            keyword = ""
+            if "פיצויים" in pdf_file.name:
+                keyword = "פיצויים"
+            elif "תגמולים" in pdf_file.name:
+                keyword = "תגמולים"
+
             # Create a unique filename to avoid conflicts
             timestamp = int(time.time())
-            new_filename = f"report_{identification_number}_{timestamp}.pdf"
+            new_filename = f"{identification_number}"
+            if keyword:
+                new_filename += f"_{keyword}"
+            new_filename += f"_{timestamp}.pdf"
+
             target_path = target_folder / new_filename
 
             shutil.move(str(pdf_file), str(target_path))

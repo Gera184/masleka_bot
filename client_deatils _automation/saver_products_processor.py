@@ -429,31 +429,21 @@ class PDFManager:
     def move_pdf_to_folder(
         pdf_file: Path, target_folder: Path, identification_number: str
     ) -> Optional[Path]:
-        """
-        Move a downloaded PDF to its specific folder with unique naming.
-
-        Args:
-            pdf_file: Path to the PDF file
-            target_folder: Destination folder
-            identification_number: Client identification number
-
-        Returns:
-            Path to the moved file or None if failed
-        """
+        """Move a downloaded PDF to its specific folder."""
         if not pdf_file or not pdf_file.exists():
-            logger.error(f"PDF file not found: {pdf_file}")
             return None
 
-        timestamp = int(time.time())
-        new_filename = f"report_{identification_number}_{timestamp}.pdf"
-        target_path = target_folder / new_filename
-
         try:
+            # Create a unique filename to avoid conflicts
+            timestamp = int(time.time())
+            new_filename = f"דוח_מאוחד_{identification_number}_{timestamp}.pdf"
+            target_path = target_folder / new_filename
+
             shutil.move(str(pdf_file), str(target_path))
-            logger.info(f"PDF moved to: {target_path}")
+            logger.info(f"✅ PDF moved to: {target_path}")
             return target_path
         except Exception as e:
-            logger.error(f"Error moving PDF: {e}")
+            logger.error(f"❌ Error moving PDF: {e}")
             return None
 
 
@@ -1270,7 +1260,7 @@ class ProductDataProcessor:
                         if label_elem and value_elem:
                             label_text = label_elem.text.strip()
                             value_text = value_elem.text.strip()
-                            
+
                             if label_text and value_text:
                                 extracted_data.append(f"    {label_text}: {value_text}")
                                 print(f"    ✅ Extracted: {label_text}: {value_text}")
@@ -1345,10 +1335,14 @@ class ProductDataProcessor:
                             cell_text = cell.text.strip()
                             if cell_text and cell_index < len(headers):
                                 if headers[cell_index] == "האם קיימת הלוואה":
-                                    row_data.append(f"{headers[cell_index]}: {cell_text}")
+                                    row_data.append(
+                                        f"{headers[cell_index]}: {cell_text}"
+                                    )
 
                                 if headers[cell_index] == "יתרה לתשלום (₪)":
-                                    clean_header = headers[cell_index].replace(" (₪)", "")
+                                    clean_header = headers[cell_index].replace(
+                                        " (₪)", ""
+                                    )
                                     row_data.append(f"{clean_header}: {cell_text}")
 
                         if row_data:
@@ -1464,7 +1458,7 @@ class DataFileManager:
             True if successful, False otherwise
         """
         timestamp = int(time.time())
-        filename = f"saver_products_data_{identification_number}_{timestamp}.pdf"
+        filename = f"עיקולים_הלוואות{identification_number}_{timestamp}.pdf"
         file_path = identification_folder / filename
 
         try:
