@@ -170,9 +170,18 @@ class PDFManager:
 
     @staticmethod
     def create_identification_folder(
-        identification_number: str, fullname_text: Optional[str] = None
+        identification_number: str, fullname_text: Optional[str] = None, selected_agent: str = ""
     ) -> Path:
-        """Create a folder for the specific identification number or full name."""
+        """Create a folder for the specific identification number or full name within agent directory."""
+        # Create agent subdirectory if specified
+        if selected_agent:
+            agent_dir = DOWNLOAD_DIR / selected_agent
+            agent_dir.mkdir(exist_ok=True)
+            base_dir = agent_dir
+            logger.info(f"📁 Using agent directory: {agent_dir}")
+        else:
+            base_dir = DOWNLOAD_DIR
+        
         if fullname_text:
             # Sanitize folder name for filesystem compatibility
             invalid_chars = '/\\:*?"<>|'
@@ -182,7 +191,7 @@ class PDFManager:
         else:
             folder_name = f"ID_{identification_number}"
 
-        subfolder = DOWNLOAD_DIR / folder_name
+        subfolder = base_dir / folder_name
         subfolder.mkdir(exist_ok=True)
         logger.info(f"📁 Created folder: {subfolder}")
         return subfolder
@@ -223,9 +232,10 @@ class PDFManager:
 class ClientProcessor:
     """Handles processing of individual client identification numbers."""
 
-    def __init__(self, driver: WebDriver, wait: WebDriverWait):
+    def __init__(self, driver: WebDriver, wait: WebDriverWait, selected_agent: str = ""):
         self.driver = driver
         self.wait = wait
+        self.selected_agent = selected_agent
         self.element_helper = ElementHelper()
 
     def process_client(
@@ -244,7 +254,7 @@ class ClientProcessor:
             # Step 2: Extract client name and create folder
             fullname_text = self._extract_client_name()
             identification_folder = PDFManager.create_identification_folder(
-                identification_number, fullname_text
+                identification_number, fullname_text, self.selected_agent
             )
 
             # Step 3: Navigate to client details
@@ -574,7 +584,7 @@ class ClientProcessor:
 
 
 def handle_post_popup_actions(
-    driver: WebDriver, wait: WebDriverWait, text_array: List[str]
+    driver: WebDriver, wait: WebDriverWait, text_array: List[str], selected_agent: str = ""
 ) -> bool:
     """
     Handle actions after popup is completed - loop through all items in text_array and process each one.
@@ -583,6 +593,7 @@ def handle_post_popup_actions(
         driver: WebDriver instance
         wait: WebDriverWait instance
         text_array: List of identification numbers to process
+        selected_agent: Selected agent name for organizing files
 
     Returns:
         bool: True if all items processed successfully, False otherwise
@@ -599,7 +610,7 @@ def handle_post_popup_actions(
             return False
 
         # Initialize client processor
-        client_processor = ClientProcessor(driver, wait)
+        client_processor = ClientProcessor(driver, wait, selected_agent)
 
         # Process each client
         successful_count = 0

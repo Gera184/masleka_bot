@@ -74,11 +74,14 @@ def automate_login(url, username, password):
         if not handle_popup_with_text_input(driver):
             return False
         
-        # Get the text array from the popup for use in post-popup actions
+        # Get the text array and selected agent from the popup for use in post-popup actions
         text_array = driver.execute_script("return window.maslekaTextArray || [];")
+        selected_agent = driver.execute_script("return window.maslekaSelectedAgent || '';")
+        
+        print(f"📋 Processing {len(text_array)} items for agent: {selected_agent}")
         
         # Handle post-popup actions
-        if not handle_post_popup_actions(driver, wait, text_array):
+        if not handle_post_popup_actions(driver, wait, text_array, selected_agent):
             return False
         
         print("✅ Automation completed successfully!")

@@ -9,9 +9,35 @@ from .page_operations import wait_for_element
 
 
 def handle_popup_with_text_input(driver):
-    """Create and handle popup with text input, label ת"ז, and buttons הוספה/שליחה."""
+    """Create and handle popup with text input, agent dropdown, label ת"ז, and buttons הוספה/שליחה."""
     try:
-        print("📝 Creating popup with text input...")
+        print("📝 Creating popup with text input and agent dropdown...")
+        
+        # Get agent folders from maslekot directory
+        from pathlib import Path
+        
+        maslekot_path = Path.home() / "Desktop" / "maslekot"
+        agent_folders = []
+        
+        if maslekot_path.exists():
+            try:
+                agent_folders = [folder.name for folder in maslekot_path.iterdir() 
+                               if folder.is_dir() and not folder.name.startswith('.')]
+                agent_folders.sort()  # Sort alphabetically
+                print(f"📁 Found agent folders: {agent_folders}")
+            except Exception as e:
+                print(f"⚠️ Error reading agent folders: {e}")
+                agent_folders = []
+        
+        if not agent_folders:
+            print("⚠️ No agent folders found, using default options")
+            agent_folders = ["Default Agent"]
+        
+        # Create options HTML for the dropdown
+        agent_options = ""
+        for i, agent in enumerate(agent_folders):
+            selected = "selected" if i == 0 else ""
+            agent_options += f'<option value="{agent}" {selected}>{agent}</option>'
         
         # Create popup using JavaScript injection
         popup_script = """
@@ -37,6 +63,21 @@ def handle_popup_with_text_input(driver):
         popup.innerHTML = `
             <div style="margin-bottom: 15px;">
                 <h3 style="margin: 0 0 15px 0; color: #333; text-align: center;">Enter ת"ז Information</h3>
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <label for="agent-select" style="display: block; margin-bottom: 5px; font-weight: bold; color: #555;">Agent:</label>
+                <select id="agent-select" style="
+                    width: 100%;
+                    padding: 8px;
+                    border: 1px solid #ddd;
+                    border-radius: 4px;
+                    font-size: 14px;
+                    box-sizing: border-box;
+                    background: white;
+                ">
+                    """ + agent_options + """
+                </select>
             </div>
             
             <div style="margin-bottom: 15px;">
@@ -92,14 +133,25 @@ def handle_popup_with_text_input(driver):
         // Add popup to page
         document.body.appendChild(popup);
         
-        // Initialize text array
+        // Initialize text array and agent selection
         window.maslekaTextArray = [];
+        window.maslekaSelectedAgent = '';
         
         // Get elements
+        var agentSelect = document.getElementById('agent-select');
         var textInput = document.getElementById('teudat-zehut');
         var addButton = document.getElementById('add-button');
         var sendButton = document.getElementById('send-button');
         var textList = document.getElementById('text-list');
+        
+        // Update selected agent when dropdown changes
+        agentSelect.addEventListener('change', function() {
+            window.maslekaSelectedAgent = this.value;
+            console.log('Selected agent:', window.maslekaSelectedAgent);
+        });
+        
+        // Initialize selected agent
+        window.maslekaSelectedAgent = agentSelect.value;
         
         // Add button functionality
         addButton.addEventListener('click', function() {
@@ -122,7 +174,8 @@ def handle_popup_with_text_input(driver):
         // Send button functionality
         sendButton.addEventListener('click', function() {
             console.log('Final text array:', window.maslekaTextArray);
-            alert('שליחה completed! Text array: ' + JSON.stringify(window.maslekaTextArray));
+            console.log('Selected agent:', window.maslekaSelectedAgent);
+            alert('שליחה completed!\\nAgent: ' + window.maslekaSelectedAgent + '\\nText array: ' + JSON.stringify(window.maslekaTextArray));
             document.body.removeChild(popup);
         });
         
@@ -206,9 +259,14 @@ def handle_popup_with_text_input(driver):
                 # No alert present, continue normally
                 pass
             
-            # Get the final text array from JavaScript
+            # Get the final text array and selected agent from JavaScript
             final_array = driver.execute_script("return window.maslekaTextArray || [];")
+            selected_agent = driver.execute_script("return window.maslekaSelectedAgent || '';")
             print(f"📋 Final text array from user input: {final_array}")
+            print(f"👤 Selected agent: {selected_agent}")
+            
+            # Store the selected agent in a global variable for use in post-popup actions
+            driver.execute_script(f"window.maslekaSelectedAgent = '{selected_agent}';")
             
             return True
             
