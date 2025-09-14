@@ -698,6 +698,10 @@ class ProductDataProcessor:
             )
             print(f"📋 Product: {product_name}")
 
+            # Add visual separator before product
+            extracted_data.append("=" * 80)
+            extracted_data.append("")
+
             # Add product header
             extracted_data.append(f"*{product_name}*")
             extracted_data.append(" ")  # Add space after product name
@@ -710,8 +714,10 @@ class ProductDataProcessor:
             )
             extracted_data.extend(detail_boxes_data)
 
-            # Add separator
-            # extracted_data.extend(["", "=" * 60, ""])
+            # Add visual separator after product
+            extracted_data.append("")
+            extracted_data.append("=" * 80)
+            extracted_data.append("")
 
         except Exception as row_error:
             print(f"❌ Error processing product row {row_index + 1}: {row_error}")
@@ -1536,8 +1542,17 @@ class DataFileManager:
 
                     story.append(Paragraph(header_text, dynamic_header_style))
                 elif line.startswith("="):
-                    # Skip separator lines
-                    continue
+                    # Create visual separator line
+                    separator_style = ParagraphStyle(
+                        "SeparatorStyle",
+                        parent=normal_style,
+                        fontSize=8,
+                        textColor=black,
+                        alignment=TA_CENTER,
+                        spaceAfter=6,
+                        spaceBefore=6,
+                    )
+                    story.append(Paragraph(line, separator_style))
                 else:
                     # Regular text line
                     # Determine color BEFORE fixing text direction (so patterns match)
