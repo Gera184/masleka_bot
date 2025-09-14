@@ -699,8 +699,8 @@ class ProductDataProcessor:
             print(f"📋 Product: {product_name}")
 
             # Add visual separator before product
-            extracted_data.append("=" * 80)
-            extracted_data.append("")
+            # extracted_data.append("=" * 80)
+            # extracted_data.append("")
 
             # Add product header
             extracted_data.append(f"*{product_name}*")
